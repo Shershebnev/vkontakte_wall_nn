@@ -1,5 +1,11 @@
+"""Create RNN network on GRU cells.
+
+TODO:   1) try LSTM cells
+        2) play with learning_rate and dropout_pkeep
+"""
 import math
 import numpy as np
+import random
 import time
 
 import tensorflow as tf
@@ -12,21 +18,26 @@ import txt_utils as txt
 
 group_id = 74479926
 output_dir = "data"
-alphabet = downloader(group_id, output_dir, 100)
+# downloader(group_id, output_dir, 100, posts = True, comments = True)
 
+# Russian characters + digits + punctuation
+ALPHABET = set([chr(i) for i in itertools.chain(range(1040, 1104),
+                                                [1025, 1105], range(32, 65))])
 SEQLEN = 30
 BATCHSIZE = 100
-ALPHABET_SIZE = len(alphabet)
+ALPHABET_SIZE = len(ALPHABET) + 1  # for symbols, like \n
 INTERNALSIZE = 512
 NLAYERS = 3
 learning_rate = 0.001  # fixed learning rate for now
-dropout_pkeep = 0.75  # no dropout for now
+dropout_pkeep = 0.75
 
-filedir = "data/*.txt"  # FIXME: hardcoded
+GENERATION_SEQUENCE_SIZE = 1000
+
+filedir = "data/batch*.txt"  # FIXME: hardcoded
 encoded_text, validation_text, bookranges = txt.read_data_files(filedir, validation = True)
 
 # model
-lr = tf.placeholder(tf.float32, name="lr")
+learn_rate = tf.placeholder(tf.float32, name="learn_rate")
 pkeep = tf.placeholder(tf.float32, name="pkeep")
 batchsize = tf.placeholder(tf.int32, name="batchsize")
 
@@ -56,7 +67,7 @@ loss = tf.reshape(loss, [batchsize, -1])
 Yo = tf.nn.softmax(Ylogits, name="Yo")
 Y = tf.argmax(Yo, 1)
 Y = tf.reshape(Y, [batchsize, -1], name="Y")
-train_step = tf.train.AdamOptimizer(lr).minimize(loss)
+train_step = tf.train.AdamOptimizer(learn_rate).minimize(loss)
 
 # stats
 seqloss = tf.reduce_mean(loss, 1)
@@ -69,7 +80,7 @@ summaries = tf.summary.merge([loss_summary, acc_summary])
 # checkpoints
 if not os.path.exists("checkpoints"):
     os.mkdir("checkpoints")
-saver = tf.train.Saver(max_to_keep=1)
+saver = tf.train.Saver()
 
 # init
 # initial zero input state
@@ -82,11 +93,12 @@ step = 0
 DISPLAY_FREQ = 50
 _50_BATCHES = DISPLAY_FREQ * BATCHSIZE * SEQLEN
 current_epoch = -1
-for x, y_, epoch in txt.rnn_minibatch_sequencer(encoded_text, BATCHSIZE, SEQLEN, 50):
+for x, y_, epoch in txt.rnn_minibatch_sequencer(encoded_text, BATCHSIZE,
+                                                SEQLEN, DISPLAY_FREQ):
     if epoch != current_epoch:
         print("\nSTARTING {} EPOCH\n".format(epoch))
         current_epoch = epoch
-    feed_dict = {X: x, Y_: y_, Hin: istate, lr: learning_rate,
+    feed_dict = {X: x, Y_: y_, Hin: istate, learn_rate: learning_rate,
                  pkeep: dropout_pkeep, batchsize: BATCHSIZE}
     _, y, ostate, smm = sess.run([train_step, Y, H, summaries], feed_dict=feed_dict)
 
@@ -106,16 +118,16 @@ for x, y_, epoch in txt.rnn_minibatch_sequencer(encoded_text, BATCHSIZE, SEQLEN,
         print("DOING GENERATION STEP")
         ry = np.array([[txt.convert_from_alphabet(ord("В"))]])
         rh = np.zeros([1, INTERNALSIZE * NLAYERS])
-        for k in range(570):  # 2 times average post length is ~235
+        for k in range(GENERATION_SEQUENCE_SIZE):
             ryo, rh = sess.run([Yo, H], feed_dict={X: ry, pkeep: 1.0, Hin: rh,
                 batchsize: 1})
-            rc = txt.sample_text(ryo, 10 if epoch <= 1 else 2, ALPHABET_SIZE)
+            rc = txt.sample_text(ryo, ALPHABET_SIZE, 10 if epoch <= 1 else 2)
             print(chr(txt.convert_to_alphabet(rc)), end="")
             ry = np.array([[rc]])
         print("\nFINISHED GENERATION STEP")
 
     if step // 10 % _50_BATCHES == 0:
-        saver.save(sess, "checkpoints/rnn_train_"  + str(math.trunc(time.time())), global_step = step)
+        saver.save(sess, "checkpoints/rnn_train_epoch_{}_".format(epoch, math.trunc(time.time())), global_step = step)
     istate = ostate
     step += BATCHSIZE * SEQLEN
 
