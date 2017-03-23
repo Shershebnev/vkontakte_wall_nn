@@ -32,6 +32,7 @@ learning_rate = 0.001  # fixed learning rate for now
 dropout_pkeep = 0.75
 
 GENERATION_SEQUENCE_SIZE = 1000
+NUMBER_OF_EPOCHS = 10
 
 filedir = "data/batch*.txt"  # FIXME: hardcoded
 encoded_text, validation_text, bookranges = txt.read_data_files(filedir, validation = True)
@@ -94,7 +95,7 @@ DISPLAY_FREQ = 50
 _50_BATCHES = DISPLAY_FREQ * BATCHSIZE * SEQLEN
 current_epoch = -1
 for x, y_, epoch in txt.rnn_minibatch_sequencer(encoded_text, BATCHSIZE,
-                                                SEQLEN, DISPLAY_FREQ):
+                                                SEQLEN, NUMBER_OF_EPOCHS):
     if epoch != current_epoch:
         print("\nSTARTING {} EPOCH\n".format(epoch))
         current_epoch = epoch
